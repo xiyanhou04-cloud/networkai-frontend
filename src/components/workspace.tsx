@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { AccountForm } from "./account-form";
 import { Feed } from "./feed";
 import { Composer } from "./composer";
+import { Studio } from "./studio";
 
 export function Workspace() {
   const [token, setToken] = useState("");
@@ -23,6 +24,7 @@ export function Workspace() {
         onExpired={signOut}
         onPublished={() => setRevision((value) => value + 1)}
       />
+      <Studio token={token} onPublished={() => setRevision((value) => value + 1)} />
       <Feed token={token} onExpired={signOut} revision={revision} />
     </section>
   );

@@ -1,9 +1,10 @@
 "use client";
  
-import { useEffect, useState, type FormEvent } from "react";
-import { ApiError, searchPosts, type Post } from "@/lib/api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ApiError, deletePost, searchPosts, type Post } from "@/lib/api";
 import { EmptyState } from "./empty-state";
- 
+import { usernameFromToken } from "@/lib/session";
+
 export function Feed({ token, onExpired, revision }: {
   token: string;
   revision: number;
@@ -13,21 +14,69 @@ export function Feed({ token, onExpired, revision }: {
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingId, setDeletingId] = useState("");
+  const deletedIds = useRef(new Set<string>());
+  const refreshWindow = useRef({ revision: 0, remaining: 0 });
+  const username = usernameFromToken(token);
+
+  async function remove(post: Post) {
+    if (!username || deletingId || post.user !== username || !window.confirm("Delete this post?")) {
+      return;
+    }
+    setDeleteError("");
+    setDeletingId(post.id);
+    try {
+      await deletePost(token, post.id);
+      deletedIds.current.add(post.id);
+      setPosts((current) => current.filter(({ id }) => id !== post.id));
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) onExpired();
+      else setDeleteError("The service could not delete this post.");
+    } finally {
+      setDeletingId("");
+    }
+  }
  
   useEffect(() => {
-	const controller = new AbortController();
-	searchPosts(token, filters, controller.signal).then((result) => {
-  	if (controller.signal.aborted) return;
-  	setPosts(result);
-  	setError("");
-  	setLoading(false);
-	}).catch((cause: unknown) => {
-  	if (controller.signal.aborted) return;
-  	if (cause instanceof ApiError && cause.status === 401) onExpired();
-  	else setError("Could not load posts. Search again to retry.");
-  	setLoading(false);
-	});
-	return () => controller.abort();
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (refreshWindow.current.revision !== revision) {
+      refreshWindow.current = { revision, remaining: 10 };
+    }
+
+    async function load() {
+      try {
+        const result = await searchPosts(token, filters, controller.signal);
+        if (controller.signal.aborted) return;
+        // Searches can still return a deleted post before indexing catches up.
+        setPosts(result.filter(({ id }) => !deletedIds.current.has(id)));
+        setError("");
+      } catch (cause) {
+        if (controller.signal.aborted) return;
+        if (cause instanceof ApiError && cause.status === 401) {
+          onExpired();
+          return;
+        }
+        setError("Could not load posts. Search again to retry.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+
+      // A successful upload may become searchable after the first Feed request.
+      if (!controller.signal.aborted && refreshWindow.current.remaining > 0) {
+        timer = setTimeout(() => {
+          refreshWindow.current.remaining -= 1;
+          void load();
+        }, 1500);
+      }
+    }
+
+    void load();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
   }, [filters, token, onExpired, revision]);
  
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -53,6 +102,7 @@ export function Feed({ token, onExpired, revision }: {
   	</form>
   	{loading && <p role="status">Loading posts...</p>}
   	{error && <p role="alert">{error}</p>}
+    {deleteError && <p role="alert">{deleteError}</p>}
   	{!loading && !error && posts.length === 0 && (
     	<EmptyState title="No posts found">
       	Try another caption or creator.
@@ -70,6 +120,11 @@ export function Feed({ token, onExpired, revision }: {
           	{post.type === "unknown" && <p>Media unavailable</p>}
           	<h3 className="font-semibold">{post.message}</h3>
           	<p>By {post.user}</p>
+            {username && post.user === username && (
+              <button disabled={!!deletingId} onClick={() => void remove(post)}>
+                {deletingId === post.id ? "Deleting..." : "Delete"}
+              </button>
+            )}
         	</article>
       	))}
     	</div>

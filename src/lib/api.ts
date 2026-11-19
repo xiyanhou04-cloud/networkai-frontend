@@ -65,3 +65,7 @@ export async function createPost(token: string, message: string, media: File) {
   data.set("media_file", media, filename);
   await request("/posts", { method: "POST", body: data }, token);
 }
+
+export async function deletePost(token: string, postId: string) {
+  await request(`/posts/${encodeURIComponent(postId)}`, { method: "DELETE" }, token);
+}
