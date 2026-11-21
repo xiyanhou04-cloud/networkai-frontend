@@ -5,6 +5,7 @@ import { AccountForm } from "./account-form";
 import { Feed } from "./feed";
 import { Composer } from "./composer";
 import { Studio } from "./studio";
+import { PersonalAgent } from "./personal-agent";
 
 export function Workspace() {
   const [token, setToken] = useState("");
@@ -19,6 +20,7 @@ export function Workspace() {
         <p className="text-sm text-slate-600">Signed in</p>
         <button onClick={signOut}>Sign out</button>
       </div>
+      <PersonalAgent key={token} token={token} onExpired={signOut} />
       <Composer
         token={token}
         onExpired={signOut}
